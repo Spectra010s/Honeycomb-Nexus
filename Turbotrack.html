@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Honeycomb Nexus - Turbo Track</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(#111, #222);
+        overflow: hidden;
+        font-family: "Press Start 2P", cursive;
+        color: #0ff;
+        touch-action: none;
+      }
+      canvas {
+        border: 2px solid #0ff;
+        width: 90vmin;
+        height: calc(90vmin * (600 / 400));
+        max-width: 400px;
+        max-height: 600px;
+        touch-action: none;
+        display: block;
+        box-shadow: 0 0 10px #0ff;
+      }
+      #uiContainer {
+        position: absolute;
+        top: 1vh;
+        left: 1vw;
+        right: 1vw;
+        color: #0ff;
+        font-size: 0.8em;
+        text-shadow: 0 0 5px #0ff;
+        z-index: 10;
+        display: none;
+        text-align: center;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-around;
+        gap: 5px;
+      }
+      @media (min-width: 600px) {
+        #uiContainer {
+          top: 10px;
+          left: 10px;
+          justify-content: flex-start;
+          text-align: left;
+          font-size: 1.2em;
+        }
+        #uiContainer div:nth-child(even) {
+          margin-right: 20px;
+        }
+      }
+      #messageBox {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.9);
+        border: 2px solid #0ff;
+        padding: 40px;
+        text-align: center;
+        color: #0ff;
+        font-size: 1.5rem;
+        text-shadow: 0 0 8px #0ff;
+        box-shadow: 0 0 15px #0ff;
+        z-index: 20;
+        display: block;
+        cursor: pointer;
+        user-select: none;
+        width: 90vw;
+        max-width: 700px;
+        box-sizing: border-box;
+      }
+      #messageBox p#gameMessage {
+        font-size: 1.5rem;
+        margin: 0 0 20px 0;
+      }
+      #messageBox #stats {
+        font-size: 1.4rem;
+        margin-bottom: 20px;
+      }
+      #messageBox .button-container {
+        display: flex;
+        gap: 20px;
+        flex-direction: column;
+        flex-wrap: wrap;
+        align-items: center;
+        align-content: center;
+      }
+      #messageBox button {
+        background: linear-gradient(#0ff, #00aaff);
+        color: #000;
+        border: none;
+        padding: 15px 30px;
+        font-family: "Press Start 2P", cursive;
+        font-size: 1.2rem;
+        cursor: pointer;
+        box-shadow: 0 0 5px #0ff;
+        white-space: nowrap;
+      }
+      #messageBox button:hover {
+        background: linear-gradient(#00aaff, #0ff);
+      }
+      #mobileInstructions {
+        font-size: 1rem;
+        color: #aaa;
+        margin-top: 15px;
+        display: none;
+      }
+      @media (max-width: 600px) {
+        #messageBox {
+          font-size: 1.4rem;
+        }
+        #messageBox p#gameMessage {
+          font-size: 1.2rem;
+        }
+        #messageBox #stats {
+          font-size: 1.2rem;
+        }
+        #messageBox button {
+          font-size: 1.2rem;
+          padding: 10px 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="uiContainer">
+      <div id="sessionXpDisplay">Session XP: 0</div>
+      <div id="levelDisplay">Level: 1</div>
+      <div id="modeDisplay">Mode: 1</div>
+      <div id="highScoreDisplay">High Score: 0</div>
+      <div id="totalGameXpDisplay">Total Turbo XP: 0</div>
+    </div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <div id="messageBox">
+      <p id="gameMessage"></p>
+      <div id="stats"></div>
+      <div class="button-container">
+        <button id="startButton">Start</button>
+        <button id="menuButton">Back to Main Menu</button>
+      </div>
+      <p id="mobileInstructions"></p>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const uiContainer = document.getElementById("uiContainer");
+      const sessionXpDisplay = document.getElementById("sessionXpDisplay");
+      const levelDisplay = document.getElementById("levelDisplay");
+      const modeDisplay = document.getElementById("modeDisplay");
+      const totalGameXpDisplay = document.getElementById("totalGameXpDisplay");
+      const highScoreDisplay = document.getElementById("highScoreDisplay");
+      const messageBox = document.getElementById("messageBox");
+      const gameMessage = document.getElementById("gameMessage");
+      const startButton = document.getElementById("startButton");
+      const menuButton = document.getElementById("menuButton");
+      const mobileInstructions = document.getElementById("mobileInstructions");
+
+      let player = {
+        x: canvas.width / 2,
+        y: canvas.height - 50,
+        size: 20,
+        speed: 5,
+        color: "#0ff",
+      };
+      let obstacles = [];
+      let particles = [];
+      let sessionXP = 0;
+      let totalTurboXP = 0;
+      let globalRankXP = 0;
+      let currentLevel = 1;
+      let gameMode = 1;
+      let xpRateMultiplier = 1.0;
+      let gameRunning = false;
+      let animationFrameId;
+      let playerMoveDirection = 0;
+      let turboHighScore = 0;
+
+      const bgImg = new Image();
+      bgImg.src = "neon.png";
+      let bgScrollOffset = 0;
+      let bgScrollSpeed = 2;
+      let imageLoaded = false;
+      bgImg.onload = () => {
+        imageLoaded = true;
+        drawBackground();
+      };
+      bgImg.onerror = () => {
+        console.error("Failed to load background image.");
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      };
+
+      const turboLevelThresholds = [0, 1024, 2048];
+      const gameModeThresholds = [0, 500, 1200];
+      const xpRateMultipliers = [1.0, 0.8, 0.6];
+      const missions = [
+        {
+          id: "reach100xp",
+          description: "Reach 100 Session XP",
+          threshold: 100,
+          reward: 20,
+          completedThisGame: false,
+        },
+        {
+          id: "reach250xp",
+          description: "Reach 250 Session XP",
+          threshold: 250,
+          reward: 50,
+          completedThisGame: false,
+        },
+      ];
+
+      function loadGameData() {
+        totalTurboXP = parseInt(localStorage.getItem("totalTurboXP") || "0");
+        globalRankXP = parseInt(localStorage.getItem("globalRankXP") || "0");
+        turboHighScore = parseInt(
+          localStorage.getItem("turboHighScore") || "0"
+        );
+        updateUI();
+      }
+
+      function saveGameData() {
+        localStorage.setItem("totalTurboXP", totalTurboXP.toString());
+        localStorage.setItem("globalRankXP", globalRankXP.toString());
+        localStorage.setItem("turboHighScore", turboHighScore.toString());
+      }
+
+      function updateGlobalRankXP(xpToAdd) {
+        let currentGlobalXP = parseInt(
+          localStorage.getItem("globalRankXP") || "0"
+        );
+        currentGlobalXP += xpToAdd;
+        localStorage.setItem("globalRankXP", currentGlobalXP.toString());
+        console.log(`Global XP updated from Turbo Track: ${currentGlobalXP}`);
+      }
+
+      function random(min, max) {
+        return Math.random() * (max - min) + min;
+      }
+
+      function isMobileDevice() {
+        return (
+          "ontouchstart" in window ||
+          navigator.maxTouchPoints > 0 ||
+          navigator.msMaxTouchPoints > 0
+        );
+      }
+
+      function showMessage(msg, showButtons = true, showStats = false) {
+        uiContainer.style.display = "none";
+        gameMessage.textContent = msg;
+        document.getElementById("stats").textContent = showStats
+          ? `Session XP: ${Math.floor(
+              sessionXP
+            )} | High Score: ${turboHighScore} | Total Turbo XP: ${totalTurboXP}`
+          : "";
+        startButton.textContent = showStats ? "Restart" : "Start";
+        startButton.style.display = showButtons ? "inline-block" : "none";
+        menuButton.style.display = showButtons ? "inline-block" : "none";
+        messageBox.style.display = "block";
+        canvas.style.display = "none";
+        if (isMobileDevice()) {
+          mobileInstructions.style.display = "block";
+        } else {
+          mobileInstructions.style.display = "none";
+        }
+      }
+
+      function hideMessage() {
+        messageBox.style.display = "none";
+        mobileInstructions.style.display = "none";
+        canvas.style.display = "block";
+        uiContainer.style.display = "flex";
+      }
+
+      async function logMissionToHoneycomb(game, xpEarned, trait) {
+        console.log(
+          `MOCK: Logging mission: ${game}, XP: ${xpEarned}, Agility: ${
+            trait ? "Yes" : "No"
+          }`
+        );
+      }
+
+      class Particle {
+        constructor(x, y, color, size, speedX, speedY, life) {
+          this.x = x;
+          this.y = y;
+          this.color = color;
+          this.size = size;
+          this.speedX = speedX;
+          this.speedY = speedY;
+          this.life = life;
+          this.opacity = 1;
+          this.initialLife = life;
+        }
+        update() {
+          this.x += this.speedX;
+          this.y += this.speedY;
+          this.life--;
+          this.opacity = this.life / this.initialLife;
+          this.size *= 0.98;
+        }
+        draw() {
+          ctx.save();
+          ctx.globalAlpha = this.opacity;
+          ctx.fillStyle = this.color;
+          ctx.shadowColor = this.color;
+          ctx.shadowBlur = 5;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      function createExplosion(x, y, color, numParticles = 20) {
+        for (let i = 0; i < numParticles; i++) {
+          const angle = random(0, Math.PI * 2);
+          const speed = random(1, 6);
+          const speedX = Math.cos(angle) * speed;
+          const speedY = Math.sin(angle) * speed;
+          const size = random(2, 5);
+          const life = random(20, 50);
+          particles.push(new Particle(x, y, color, size, speedX, speedY, life));
+        }
+      }
+
+      function drawBackground() {
+        if (imageLoaded) {
+          ctx.drawImage(bgImg, 0, bgScrollOffset, canvas.width, canvas.height);
+          ctx.drawImage(
+            bgImg,
+            0,
+            bgScrollOffset - canvas.height,
+            canvas.width,
+            canvas.height
+          );
+        } else {
+          ctx.fillStyle = "#222";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      function getTurboTrackLevel(totalXP) {
+        if (totalXP >= 2048) return 3;
+        if (totalXP >= 1024) return 2;
+        return 1;
+      }
+
+      function getGameMode(totalXP) {
+        for (let i = gameModeThresholds.length - 1; i >= 0; i--) {
+          if (totalXP >= gameModeThresholds[i]) {
+            return i + 1;
+          }
+        }
+        return 1;
+      }
+
+      function spawnObstacle() {
+        const x = Math.random() * (canvas.width - 60) + 30;
+        const obstacleTypesAvailable = [];
+        if (gameMode === 1) {
+          obstacleTypesAvailable.push("rect");
+        } else if (gameMode === 2) {
+          obstacleTypesAvailable.push("rect", "line");
+        } else {
+          obstacleTypesAvailable.push("rect", "line", "diamond");
+        }
+        const type =
+          obstacleTypesAvailable[
+            Math.floor(Math.random() * obstacleTypesAvailable.length)
+          ];
+        const speed = currentLevel * 0.8 + 2.5;
+        let newObstacle;
+        switch (type) {
+          case "rect":
+            newObstacle = {
+              x,
+              y: -50,
+              width: random(40, 70),
+              height: random(15, 30),
+              speed,
+              type: "rect",
+              color: "#f00",
+            };
+            break;
+          case "line":
+            newObstacle = {
+              x,
+              y: -50,
+              width: random(80, 150),
+              height: 5,
+              speed,
+              type: "line",
+              color: "#f00",
+              angle: random(-0.2, 0.2),
+            };
+            break;
+          case "diamond":
+            newObstacle = {
+              x,
+              y: -50,
+              size: random(20, 35),
+              speed,
+              type: "diamond",
+              color: "#f00",
+              rotation: 0,
+              rotationSpeed:
+                random(0.02, 0.08) * (Math.random() > 0.5 ? 1 : -1),
+            };
+            break;
+        }
+        obstacles.push(newObstacle);
+      }
+
+      function drawPlayer() {
+        ctx.fillStyle = player.color;
+        ctx.shadowColor = player.color;
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y - player.size);
+        ctx.lineTo(player.x - player.size * 0.7, player.y + player.size * 0.5);
+        ctx.lineTo(player.x + player.size * 0.7, player.y + player.size * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        if (gameRunning && Math.random() < 0.7) {
+          particles.push(
+            new Particle(
+              player.x + random(-player.size * 0.3, player.size * 0.3),
+              player.y + player.size * 0.5,
+              "rgba(0, 255, 255, " + random(0.3, 0.6) + ")",
+              random(2, 5),
+              random(-0.5, 0.5),
+              random(1, 3),
+              random(10, 30)
+            )
+          );
+        }
+      }
+
+      function drawObstacle(obs) {
+        ctx.fillStyle = obs.color;
+        ctx.shadowColor = obs.color;
+        ctx.shadowBlur = 8;
+        ctx.save();
+        ctx.translate(
+          obs.x + (obs.width / 2 || obs.size / 2),
+          obs.y + (obs.height / 2 || obs.size / 2)
+        );
+        if (obs.type === "diamond") {
+          obs.rotation += obs.rotationSpeed;
+          ctx.rotate(obs.rotation);
+        } else if (obs.type === "line") {
+          ctx.rotate(obs.angle);
+        }
+        switch (obs.type) {
+          case "rect":
+            ctx.fillRect(
+              -obs.width / 2,
+              -obs.height / 2,
+              obs.width,
+              obs.height
+            );
+            break;
+          case "line":
+            ctx.fillRect(
+              -obs.width / 2,
+              -obs.height / 2,
+              obs.width,
+              obs.height
+            );
+            break;
+          case "diamond":
+            const halfSize = obs.size / 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -halfSize);
+            ctx.lineTo(halfSize, 0);
+            ctx.lineTo(0, halfSize);
+            ctx.lineTo(-halfSize, 0);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        }
+        ctx.restore();
+        ctx.shadowBlur = 0;
+      }
+
+      function checkCollision(player, obstacle) {
+        const playerTop = player.y - player.size;
+        const playerBottom = player.y + player.size * 0.5;
+        const playerLeft = player.x - player.size * 0.7;
+        const playerRight = player.x + player.size * 0.7;
+        let obsLeft, obsRight, obsTop, obsBottom;
+        if (obstacle.type === "rect" || obstacle.type === "line") {
+          obsLeft = obstacle.x;
+          obsRight = obstacle.x + obstacle.width;
+          obsTop = obstacle.y;
+          obsBottom = obstacle.y + obstacle.height;
+        } else if (obstacle.type === "diamond") {
+          obsLeft = obstacle.x - obstacle.size / 2;
+          obsRight = obstacle.x + obstacle.size / 2;
+          obsTop = obstacle.y - obstacle.size / 2;
+          obsBottom = obstacle.y + obstacle.size / 2;
+        }
+        return (
+          playerRight > obsLeft &&
+          playerLeft < obsRight &&
+          playerBottom > obsTop &&
+          playerTop < obsBottom
+        );
+      }
+
+      function updateGameModeAndMultiplier() {
+        const newMode = getGameMode(totalTurboXP);
+        if (newMode !== gameMode) {
+          gameMode = newMode;
+          xpRateMultiplier = xpRateMultipliers[gameMode - 1];
+          console.log(`Game Mode changed to: ${gameMode}`);
+        }
+      }
+
+      function checkMissions() {
+        missions.forEach((mission) => {
+          if (
+            !mission.completedThisGame &&
+            Math.floor(sessionXP) >= mission.threshold
+          ) {
+            mission.completedThisGame = true;
+            updateGlobalRankXP(mission.reward);
+            logMissionToHoneycomb("TurboTrack", mission.reward, true);
+          }
+        });
+      }
+
+      function updateGame() {
+        sessionXP += (1 * xpRateMultiplier) / 60;
+        bgScrollOffset = (bgScrollOffset + bgScrollSpeed) % canvas.height;
+        if (playerMoveDirection === -1 && player.x > player.size * 0.7) {
+          player.x -= player.speed;
+        } else if (
+          playerMoveDirection === 1 &&
+          player.x < canvas.width - player.size * 0.7
+        ) {
+          player.x += player.speed;
+        }
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const obs = obstacles[i];
+          obs.y += obs.speed;
+          drawObstacle(obs);
+          if (checkCollision(player, obs)) {
+            createExplosion(player.x, player.y, obs.color, 30);
+            endGame("Game Over!");
+            return;
+          }
+          if (obs.y > canvas.height + 50) {
+            obstacles.splice(i, 1);
+          }
+        }
+        for (let i = particles.length - 1; i >= 0; i--) {
+          particles[i].update();
+          particles[i].draw();
+          if (particles[i].life <= 0 || particles[i].size <= 0.1) {
+            particles.splice(i, 1);
+          }
+        }
+        checkMissions();
+        const currentTotalXPForLevelCheck =
+          totalTurboXP + Math.floor(sessionXP);
+        const newLevel = getTurboTrackLevel(currentTotalXPForLevelCheck);
+        if (newLevel !== currentLevel) {
+          currentLevel = newLevel;
+          console.log(`Turbo Track Level Up! New Level: ${currentLevel}`);
+        }
+        updateUI();
+        const spawnChance =
+          (0.015 + currentLevel * 0.003) * (1 + (gameMode - 1) * 0.1);
+        if (Math.random() < spawnChance) {
+          spawnObstacle();
+        }
+      }
+
+      function gameLoop() {
+        if (!gameRunning) return;
+        drawBackground();
+        updateGame();
+        drawPlayer();
+        animationFrameId = requestAnimationFrame(gameLoop);
+      }
+
+      async function startGame() {
+        hideMessage();
+        gameRunning = true;
+        obstacles = [];
+        particles = [];
+        sessionXP = 0;
+        player.x = canvas.width / 2;
+        missions.forEach((mission) => {
+          mission.completedThisGame = false;
+        });
+        currentLevel = getTurboTrackLevel(totalTurboXP);
+        gameMode = getGameMode(totalTurboXP);
+        xpRateMultiplier = xpRateMultipliers[gameMode - 1];
+        updateUI();
+        animationFrameId = requestAnimationFrame(gameLoop);
+      }
+
+      function endGame(message) {
+        gameRunning = false;
+        cancelAnimationFrame(animationFrameId);
+        createExplosion(player.x, player.y, player.color, 50);
+        if (Math.floor(sessionXP) > turboHighScore) {
+          turboHighScore = Math.floor(sessionXP);
+        }
+        totalTurboXP += Math.floor(sessionXP);
+        saveGameData();
+        updateGlobalRankXP(Math.floor(sessionXP));
+        logMissionToHoneycomb(
+          "TurboTrack",
+          Math.floor(sessionXP),
+          totalTurboXP >= 1024
+        );
+        showMessage(message, true, true);
+      }
+
+      function updateUI() {
+        sessionXpDisplay.textContent = `Session XP: ${Math.floor(sessionXP)}`;
+        levelDisplay.textContent = `Level: ${currentLevel}`;
+        modeDisplay.textContent = `Mode: ${gameMode}`;
+        highScoreDisplay.textContent = `High Score: ${turboHighScore}`;
+        totalGameXpDisplay.textContent = `Total Turbo XP: ${totalTurboXP}`;
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (!gameRunning) return;
+        if (e.key === "ArrowLeft" || e.key === "a") {
+          playerMoveDirection = -1;
+        } else if (e.key === "ArrowRight" || e.key === "d") {
+          playerMoveDirection = 1;
+        }
+      });
+      document.addEventListener("keyup", (e) => {
+        if (
+          e.key === "ArrowLeft" ||
+          e.key === "a" ||
+          e.key === "ArrowRight" ||
+          e.key === "d"
+        ) {
+          playerMoveDirection = 0;
+        }
+      });
+      canvas.addEventListener(
+        "touchstart",
+        async (e) => {
+          if (!gameRunning) return;
+          e.preventDefault();
+          const touchX = e.touches[0].clientX;
+          const canvasRect = canvas.getBoundingClientRect();
+          if (touchX < canvasRect.left + canvasRect.width / 2) {
+            playerMoveDirection = -1;
+          } else {
+            playerMoveDirection = 1;
+          }
+        },
+        { passive: false }
+      );
+      canvas.addEventListener(
+        "touchmove",
+        (e) => {
+          if (!gameRunning) return;
+          e.preventDefault();
+          const touchX = e.touches[0].clientX;
+          const canvasRect = canvas.getBoundingClientRect();
+          if (touchX < canvasRect.left + canvasRect.width / 2) {
+            playerMoveDirection = -1;
+          } else {
+            playerMoveDirection = 1;
+          }
+        },
+        { passive: false }
+      );
+      canvas.addEventListener("touchend", () => {
+        playerMoveDirection = 0;
+      });
+      startButton.addEventListener("click", startGame);
+      menuButton.addEventListener("click", () => {
+        window.location.href = "index.html";
+      });
+
+      window.addEventListener("resize", () => {
+        if (gameRunning) {
+          drawBackground();
+          drawPlayer();
+          obstacles.forEach(drawObstacle);
+          particles.forEach((p) => p.draw());
+        }
+      });
+
+      loadGameData();
+      showMessage("Honeycomb Nexus - Turbo Track", true, false);
+    </script>
+  </body>
+</html>

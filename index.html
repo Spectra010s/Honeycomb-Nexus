@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Honeycomb Nexus</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(#111, #222);
+        font-family: "Press Start 2P", cursive;
+        color: #0ff;
+        position: relative; /* For absolute positioning of global stats */
+      }
+      h1 {
+        font-size: 2em;
+        text-shadow: 0 0 10px #0ff;
+      }
+      button {
+        margin: 10px;
+        padding: 12px 24px;
+        background: linear-gradient(#0ff, #00aaff);
+        color: #000;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 1em;
+        box-shadow: 0 0 5px #0ff;
+      }
+      button:hover {
+        background: linear-gradient(#00aaff, #0ff);
+      }
+      /* Styling for global stats on main page */
+      #globalStats {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        text-align: right;
+        color: #0ff;
+        font-size: 1.2em;
+        text-shadow: 0 0 5px #0ff;
+      }
+      #globalStats div {
+        margin-bottom: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Honeycomb Nexus</h1>
+
+    <div id="globalStats">
+      <div id="globalRankXpDisplay">Global XP: 0</div>
+      <div id="wisdomDisplay">Wisdom: 0</div>
+      <div>
+        <button id="connect-btn" onclick="connectWallet()">
+          Connect Wallet
+        </button>
+        <p id="wallet-address" style="display: none"></p>
+      </div>
+    </div>
+
+    <button onclick="window.location.href='Turbotrack.html'">
+      Play Turbo Track
+    </button>
+    <button onclick="window.location.href='Stackshift.html'">
+      Play StackShift
+    </button>
+
+    <button id="resetButton" style="margin-top: 10px; display: block">
+      Reset Game Data
+    </button>
+    <script>
+      const connectBtn = document.getElementById("connect-btn");
+      const walletDisplay = document.getElementById("wallet-address");
+
+      const connectWallet = async () => {
+        if (window.solana && window.solana.isPhantom) {
+          try {
+            const res = await window.solana.connect({ onlyIfTrusted: false });
+            console.log("✅ Wallet connected:", res.publicKey.toString());
+            walletDisplay.innerText = "Wallet: " + address;
+            walletDisplay.style.display = "block";
+            connectBtn.style.display = "none";
+          } catch (err) {
+            console.error("❌ User rejected the connection");
+          }
+        } else {
+          alert("Phantom not found. Please install Phantom Wallet.");
+        }
+      };
+
+      window.addEventListener("load", async () => {
+        if (window.solana?.isPhantom) {
+          try {
+            const res = await window.solana.connect({ onlyIfTrusted: true });
+            const address = res.publicKey.toString();
+            const shortAddress = address.slice(0, 4) + "…" + address.slice(-5);
+
+            walletDisplay.innerText = "Wallet: " + shortaddress;
+            walletDisplay.style.display = "block";
+            connectBtn.style.display = "none";
+
+            console.log("🔄 Auto-connected:", address);
+          } catch (e) {
+            console.log("🔍 Wallet not connected yet");
+          }
+        }
+      });
+    </script>
+
+    <script>
+      const globalRankXpDisplay = document.getElementById(
+        "globalRankXpDisplay"
+      );
+      const wisdomDisplay = document.getElementById("wisdomDisplay");
+
+      let globalRankXP = 0;
+      let wisdomLevel = 0;
+
+      const wisdomThresholds = [0, 500, 1000, 1500, 2000, 2500];
+
+      function updateGlobalStats() {
+        globalRankXP = parseInt(localStorage.getItem("globalRankXP") || "0");
+        globalRankXpDisplay.textContent = `Global XP: ${globalRankXP}`;
+
+        let newWisdomLevel = 0;
+        for (let i = wisdomThresholds.length - 1; i >= 0; i--) {
+          if (globalRankXP >= wisdomThresholds[i]) {
+            newWisdomLevel = i;
+            break;
+          }
+        }
+        wisdomLevel = newWisdomLevel;
+        wisdomDisplay.textContent = `Wisdom: ${wisdomLevel}`;
+      }
+
+      document.addEventListener("DOMContentLoaded", updateGlobalStats);
+      window.addEventListener("focus", updateGlobalStats);
+
+      const resetButton = document.getElementById("resetButton");
+
+      resetButton.addEventListener("click", clear);
+      function clear() {
+        localStorage.clear();
+        console.log("Game data cleared");
+        alert("Game data has been reset.");
+      }
+    </script>
+  </body>
+</html>
