@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Honeycomb Nexus - StackShift</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(#111, #222);
+        font-family: "Press Start 2P", cursive;
+        color: #0ff;
+        touch-action: none;
+        overflow: hidden;
+      }
+      canvas {
+        border: 2px solid #0ff;
+        background: #222;
+        box-shadow: 0 0 10px #0ff;
+        width: 90vmin;
+        height: 90vmin;
+        max-width: 400px;
+        max-height: 400px;
+        display: block;
+      }
+      #ui {
+        position: absolute;
+        font-size: 0.8em;
+        text-shadow: 0 0 5px #0ff;
+        padding: 5px;
+        z-index: 10;
+        top: 1vh;
+        left: 1vw;
+        right: 1vw;
+        text-align: center;
+        display: none;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px 15px;
+      }
+      #ui > div {
+        white-space: nowrap;
+      }
+      @media (min-width: 600px) {
+        #ui {
+          top: 10px;
+          left: 10px;
+          text-align: left;
+          justify-content: flex-start;
+          gap: 5px 20px;
+        }
+      }
+      #messageBox {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.9);
+        border: 2px solid #0ff;
+        padding: 40px;
+        text-align: center;
+        color: #0ff;
+        font-size: 1.5rem;
+        text-shadow: 0 0 8px #0ff;
+        box-shadow: 0 0 15px #0ff;
+        z-index: 20;
+        display: block;
+        cursor: pointer;
+        user-select: none;
+        width: 90vw;
+        max-width: 700px;
+        box-sizing: border-box;
+      }
+      #messageBox p#gameMessage {
+        font-size: 1.5rem;
+        margin: 0 0 20px 0;
+      }
+      #messageBox #stats {
+        font-size: 1.4rem;
+        margin-bottom: 20px;
+      }
+      #messageBox .button-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+      }
+      #messageBox button {
+        margin: 10px;
+        padding: 15px 30px;
+        background: linear-gradient(#0ff, #00aaff);
+        color: #000;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 1.2rem;
+        box-shadow: 0 0 5px #0ff;
+        white-space: nowrap;
+      }
+      #messageBox button:hover {
+        background: linear-gradient(#00aaff, #0ff);
+      }
+      @media (max-width: 600px) {
+        #messageBox {
+          font-size: 1.4rem;
+        }
+        #messageBox p#gameMessage {
+          font-size: 1.2rem;
+        }
+        #messageBox #stats {
+          font-size: 1.2rem;
+        }
+        #messageBox button {
+          font-size: 1.2rem;
+          padding: 10px 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div>Score: <span id="score">0</span></div>
+      <div>Session XP: <span id="xp">0</span></div>
+      <div>Total XP: <span id="totalXP">0</span></div>
+      <div>Level: <span id="level">1</span></div>
+      <div>High Score: <span id="highScore">0</span></div>
+    </div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <div id="messageBox">
+      <p id="gameMessage"></p>
+      <div id="stats"></div>
+      <div class="button-container">
+        <button id="startButton">Start</button>
+        <button id="menuButton">Back to Main Menu</button>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+
+    <script>
+      const gameCanvas = document.getElementById("gameCanvas");
+      const ctx = gameCanvas.getContext("2d");
+      const uiContainer = document.getElementById("ui");
+      const scoreDisplay = document.getElementById("score");
+      const xpDisplay = document.getElementById("xp");
+      const totalXPDisplay = document.getElementById("totalXP");
+      const levelDisplay = document.getElementById("level");
+      const highScoreDisplay = document.getElementById("highScore");
+      const messageBox = document.getElementById("messageBox");
+      const gameMessage = document.getElementById("gameMessage");
+      const startButton = document.getElementById("startButton");
+      const menuButton = document.getElementById("menuButton");
+
+      let gridSize;
+      let grid;
+      let score = 0;
+      let sessionXP = 0;
+      let totalStackShiftXP = 0;
+      let globalRankXP = 0;
+      let currentLevel = 1;
+      let wisdomLevel = 0;
+      let gameOver = false;
+      let gameStarted = false;
+      let stackShiftHighScore = 0;
+
+      const GRID_4X4_XP_THRESHOLD = 1024;
+      const tileValues = [
+        "SOL",
+        "NFT",
+        "Token",
+        "Block",
+        "Chain",
+        "Wallet",
+        "DEX",
+        "Stake",
+      ];
+      const tileColors = [
+        "#0ff",
+        "#f0f",
+        "#ff0",
+        "#0f0",
+        "#f00",
+        "#00f",
+        "#ffa500",
+        "#fff",
+      ];
+      const levelThresholds = [0, 1024, 2048];
+
+      async function logMissionToHoneycomb(game, score, xp, traitLevel) {
+        console.log(
+          `MOCK: Logging mission: ${game}, Score: ${score}, XP: ${xp}, Wisdom: Lvl ${traitLevel}`
+        );
+      }
+
+      async function submitScoreToVerxio(score) {
+        console.log(
+          `MOCK: Submitting score to Verxio: ${score}, Global XP: ${globalRankXP}`
+        );
+      }
+
+      function loadGameData() {
+        totalStackShiftXP = parseInt(
+          localStorage.getItem("totalStackShiftXP") || "0"
+        );
+        globalRankXP = parseInt(localStorage.getItem("globalRankXP") || "0");
+        stackShiftHighScore = parseInt(
+          localStorage.getItem("stackShiftHighScore") || "0"
+        );
+        totalXPDisplay.textContent = totalStackShiftXP;
+        currentLevel = getDifficultyLevelFromTotalXP(totalStackShiftXP);
+        levelDisplay.textContent = currentLevel;
+        highScoreDisplay.textContent = stackShiftHighScore;
+        gridSize = totalStackShiftXP >= GRID_4X4_XP_THRESHOLD ? 4 : 3;
+      }
+
+      function saveGameData() {
+        localStorage.setItem("totalStackShiftXP", totalStackShiftXP.toString());
+        localStorage.setItem("globalRankXP", globalRankXP.toString());
+        localStorage.setItem(
+          "stackShiftHighScore",
+          stackShiftHighScore.toString()
+        );
+      }
+
+      function getDifficultyLevelFromTotalXP(totalXP) {
+        if (totalXP >= 2048) return 3;
+        if (totalXP >= 1024) return 2;
+        return 1;
+      }
+
+      function showMessage(msg, showButtons = true, showStats = false) {
+        gameMessage.textContent = msg;
+        document.getElementById("stats").textContent = showStats
+          ? `Score: ${score}, Session XP: ${sessionXP}, Total XP: ${totalStackShiftXP}, High Score: ${stackShiftHighScore}`
+          : "";
+        startButton.textContent = showStats ? "Restart" : "Start";
+        startButton.style.display = showButtons ? "inline-block" : "none";
+        menuButton.style.display = showButtons ? "inline-block" : "none";
+        messageBox.style.display = "block";
+        gameCanvas.style.display = "none";
+        uiContainer.style.display = "none";
+      }
+
+      function hideMessage() {
+        messageBox.style.display = "none";
+        gameCanvas.style.display = "block";
+        uiContainer.style.display = "flex";
+      }
+
+      function addTile() {
+        let empty = [];
+        for (let i = 0; i < gridSize; i++) {
+          for (let j = 0; j < gridSize; j++) {
+            if (grid[i][j] === 0) empty.push([i, j]);
+          }
+        }
+        if (empty.length) {
+          const [i, j] = empty[Math.floor(Math.random() * empty.length)];
+          grid[i][j] = Math.random() < 0.9 ? 1 : 2;
+        }
+      }
+
+      function drawGrid() {
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+        const tileSize = gameCanvas.width / gridSize;
+        for (let i = 0; i < gridSize; i++) {
+          for (let j = 0; j < gridSize; j++) {
+            const value = grid[i][j];
+            ctx.fillStyle = value ? tileColors[value - 1] : "#333";
+            ctx.fillRect(
+              j * tileSize,
+              i * tileSize,
+              tileSize - 5,
+              tileSize - 5
+            );
+            if (value) {
+              ctx.fillStyle = "#000";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.font = "20px Arial";
+              ctx.fillText(
+                tileValues[value - 1],
+                j * tileSize + tileSize / 2,
+                i * tileSize + tileSize / 2
+              );
+            }
+          }
+        }
+      }
+
+      function move(direction) {
+        if (gameOver) return;
+        let moved = false;
+        let newGrid = Array(gridSize)
+          .fill()
+          .map(() => Array(gridSize).fill(0));
+        if (direction === "up" || direction === "down") {
+          for (let j = 0; j < gridSize; j++) {
+            let col = [];
+            for (let i = 0; i < gridSize; i++) col.push(grid[i][j]);
+            if (direction === "down") col.reverse();
+            let newCol = slideAndMerge(col);
+            if (direction === "down") newCol.reverse();
+            for (let i = 0; i < gridSize; i++) newGrid[i][j] = newCol[i];
+            if (newCol.join() !== col.join()) moved = true;
+          }
+        } else {
+          for (let i = 0; i < gridSize; i++) {
+            let row = grid[i].slice();
+            if (direction === "right") row.reverse();
+            let newRow = slideAndMerge(row);
+            if (direction === "right") newRow.reverse();
+            newGrid[i] = newRow;
+            if (newRow.join() !== row.join()) moved = true;
+          }
+        }
+        if (moved) {
+          grid = newGrid;
+          addTile();
+          updateScore();
+          drawGrid();
+          checkGameOver();
+        }
+      }
+
+      function slideAndMerge(line) {
+        let newLine = line.filter((x) => x);
+        for (let i = 0; i < newLine.length - 1; i++) {
+          if (newLine[i] === newLine[i + 1] && newLine[i] !== 0) {
+            newLine[i]++;
+            score += 2 ** newLine[i];
+            newLine.splice(i + 1, 1);
+          }
+        }
+        while (newLine.length < gridSize) newLine.push(0);
+        return newLine;
+      }
+
+      function updateScore() {
+        scoreDisplay.textContent = score;
+        sessionXP = Math.floor(score / 10);
+        xpDisplay.textContent = sessionXP;
+        totalXPDisplay.textContent = totalStackShiftXP;
+        wisdomLevel = score >= 2048 ? 2 : score >= 1024 ? 1 : 0;
+        currentLevel = getDifficultyLevelFromTotalXP(totalStackShiftXP);
+        levelDisplay.textContent = currentLevel;
+        highScoreDisplay.textContent = stackShiftHighScore;
+        const newGridSize = totalStackShiftXP >= GRID_4X4_XP_THRESHOLD ? 4 : 3;
+        if (newGridSize !== gridSize) {
+          gridSize = newGridSize;
+          grid = Array(gridSize)
+            .fill()
+            .map(() => Array(gridSize).fill(0));
+          addTile();
+          addTile();
+          console.log(`Grid size changed to: ${gridSize}x${gridSize}`);
+        }
+      }
+
+      function checkGameOver() {
+        for (let i = 0; i < gridSize; i++) {
+          for (let j = 0; j < gridSize; j++) {
+            if (grid[i][j] === 0) return;
+            if (j < gridSize - 1 && grid[i][j] === grid[i][j + 1]) return;
+            if (i < gridSize - 1 && grid[i][j] === grid[i + 1][j]) return;
+          }
+        }
+        gameOver = true;
+        totalStackShiftXP += sessionXP;
+        globalRankXP += sessionXP;
+        if (score > stackShiftHighScore) {
+          stackShiftHighScore = score;
+        }
+        saveGameData();
+        logMissionToHoneycomb("StackShift", score, sessionXP, wisdomLevel);
+        submitScoreToVerxio(score);
+        showMessage(`Game Over!`, true, true);
+      }
+
+      function initializeGameGrid() {
+        gridSize = totalStackShiftXP >= GRID_4X4_XP_THRESHOLD ? 4 : 3;
+        grid = Array(gridSize)
+          .fill()
+          .map(() => Array(gridSize).fill(0));
+        addTile();
+        addTile();
+      }
+
+      function startGame() {
+        gameStarted = true;
+        hideMessage();
+        score = 0;
+        sessionXP = 0;
+        wisdomLevel = 0;
+        gameOver = false;
+        initializeGameGrid();
+        updateScore();
+        drawGrid();
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (!gameStarted) return;
+        if (e.key === "ArrowUp") move("up");
+        else if (e.key === "ArrowDown") move("down");
+        else if (e.key === "ArrowLeft") move("left");
+        else if (e.key === "ArrowRight") move("right");
+      });
+
+      let touchStartX = 0;
+      let touchStartY = 0;
+      gameCanvas.addEventListener(
+        "touchstart",
+        (e) => {
+          if (!gameStarted) return;
+          e.preventDefault();
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+        },
+        { passive: false }
+      );
+      gameCanvas.addEventListener(
+        "touchmove",
+        (e) => {
+          if (!gameStarted) return;
+          e.preventDefault();
+          const touchX = e.touches[0].clientX;
+          const touchY = e.touches[0].clientY;
+          const deltaX = touchX - touchStartX;
+          const deltaY = touchY - touchStartY;
+          const swipeThreshold = 30;
+          if (Math.abs(deltaX) > Math.abs(deltaY)) {
+            if (deltaX > swipeThreshold) move("right");
+            else if (deltaX < -swipeThreshold) move("left");
+          } else {
+            if (deltaY > swipeThreshold) move("down");
+            else if (deltaY < -swipeThreshold) move("up");
+          }
+          touchStartX = touchX;
+          touchStartY = touchY;
+        },
+        { passive: false }
+      );
+
+      gameCanvas.addEventListener("touchend", (e) => {});
+
+      startButton.addEventListener("click", startGame);
+      menuButton.addEventListener("click", () => {
+        window.location.href = "index.html";
+      });
+
+      window.addEventListener("resize", () => {
+        if (gameStarted && !gameOver) {
+          drawGrid();
+        }
+      });
+
+      loadGameData();
+      initializeGameGrid();
+      updateScore();
+      showMessage("Honeycomb Nexus - Stackshift", true, false);
+    </script>
+  </body>
+</html>
